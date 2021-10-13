@@ -1,86 +1,82 @@
 %%%%% ADAPTIVE CROSSOVER FREQUENCIES OF HPF-LPF
-
+clc;
+close all;
+clear all;
+pkg load signal
+tic
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %    Read input
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-[xin, Fs] = audioread (input)
+[xin, Fs] = audioread ("OTOG2_Speech_silent_wind3_wind5_FanB_mic7.wav");
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %    pre treat input with HPF 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-[b,a]            = butter(6, 80/*Fs/2), 'high');
-x_right_acoustic = filter(b,a, xin(:,1))
-x_left_vpu       = filter(b,a, xin(:,2))
+[b,a]            = butter(2, 80/(Fs/2), 'high');
+x_right_acoustic = filter(b,a, xin(:,1));
+x_left_vpu       = filter(b,a, xin(:,1)); ##change to 2
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %    pre treat vpu signal with BPF 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-band_freqs = [100,1500];
-[b_high, a_high] = butter(2, band_freqs(1)/Fs, 'high');
-[b_low, a_low] = butter(2, band_freqs(2)/Fs, 'low');
-b2 = conv(b_high, a_low);
-a2 = conv(a_high, b_low);
-x_vpu_filtered = filter(b2, a2, x_in(:,2));
+band_freqs = [80,1500];
+[b2, a2] = butter(1, [band_freqs(1)/(Fs/2),band_freqs(2)/(Fs/2)], 'bandpass');
+x_vpu_filtered = filter(b2, a2, xin(:,1));
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %    variables declaration
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 nooverlap = 256;
-window = hann(512, 'periodic');
-M = length(window);
-w = window(:);
-nhop  = M-nooverlap;
+Win = hann(512, 'periodic');
+Win_len = length(Win);
+
+nhop  = Win_len-nooverlap;
 nx = length(x_left_vpu);
-nframes = 1+fix((nx-M)/nhop);
-xframe_l = zeros(M,1);
-xframe_r = zeros(M,1);
-noise_est_var = 0;
-noise_est_frame = zeros(M,1);
-noise_est_full = zeros(nframes*nhop+M,1);
-filtered_out = zeros(nframes*nhop+M,2);
-vad_signal = zeros(M,1);
-vad_signal_full = zeros(nframes*nhop+M,1);
+nframes = 1+fix((nx-Win_len)/nhop);
+xframe_l = zeros(Win_len,1);
+xframe_r = zeros(Win_len,1);
+
+VAD_signal = zeros(Win_len,1);
+E_out = zeros(Win_len,1);
 vad_threshold = 2e-5;
-vad_average = 0;
-vad_average_frame   = zeros(M,1); %E_out
-vad_average_full = zeros(nframes*nhop+M,1); % E_full
-yout = zeros(nframes*nhop+M,2);
-t = (0:length(nframes)-1)*1/Fs;
+
+yout = zeros(nframes*nhop+Win_len,2);
+
 Xc = [80,315,630,1250,2500,5000];
 
+tA = 1/Fs*0.01;
+E =0;
+exp_avg_r =0;
 
-
-alpha = 1/(Fs*0.01);
-vad_ths = 1;
-
-for m = 0:nframes-1
-  xframe_l =  x_left_vpu(m*nhop+(1:M));
-  xframe_l_filtered = x_vpu_filtered(m*nhop+(1:M));
-  xframe_r =  x_right_acoustic(m*nhop+(1:M)); 
+for m = 0:nframes - 1
  
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%    VAD
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+   xframe_l           = x_left_vpu(m*nhop+(1:Win_len));
+   xframe_l_filtered  = x_vpu_filtered(m*nhop+(1:Win_len));
+   xframe_r           = x_right_acoustic(m*nhop+(1:Win_len));
+    startframeAt = m*nhop
 
-  [vad_signal, vad_average_frame] = VAD(xframe_l_filtered, vad_average, alpha, M, nhop, vad_threshold );
-  vad_average = vad_average_frame(nhop);
-  vad_average_full(m*nhop+(1:nhop),1) = vad_average_frame;
-  vad_signal_full(m*nhop+(1:nhop),1) = vad_signal;
+  %--------------------------------------------------------------------------
+  %                     VAD
+  %--------------------------------------------------------------------------
 
-  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%    ADAPTIVE cross over
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    [VAD_signal, E_out] = VAD(xframe_l_filtered, E, tA, Win_len, nhop, vad_threshold);
+    E = E_out(nhop);      % update E with previous average out value
+      
+  %--------------------------------------------------------------------------
+  %           Adaptive crossover frequencies
+  %--------------------------------------------------------------------------
   
-  [x_com, xw_l, xw_r, noise_est_frame] = adaptive_crossover(xframe_l, xframe_r, Xc, Fs, noise_est_var, vad_signal, M, w);
-  noise_est_var = noise_est_frame(nhop);
-  noise_est_full(m*nhop+(1:M),1)  = noise_est_frame;
-  
-  yout(m*nhop+(1:M),1) = yout(m*nhop+(1:M),1)+ x_com;
-  yout(m*nhop+(1:M),2) = yout(m*nhop+(1:M),2)+ xw_r;
-  endfor
-  
-endfor
+   [x_com, xw_l, xw_r, NE,Wn]  =  adaptive_crossover(xframe_l, xframe_r, Xc, Fs, exp_avg_r, VAD_signal, Win_len, Win);
+    exp_avg_r = NE(nhop);
+##    exp_avg_r_out(m*nhop+(1:nhop), 1)     = NE(1:nhop);
+##    exp_avg_r_out_db = 10*log10(exp_avg_r_out+1.0e-12);
+    yout(m*nhop+(1:Win_len), 1)   = yout(m*nhop+(1:Win_len), 1) + x_com;
+    yout(m*nhop+(1:Win_len), 2)   = yout(m*nhop+(1:Win_len), 2) + xw_r;
+    Wn(m+1,1) = Wn;
+
+end
+toc
