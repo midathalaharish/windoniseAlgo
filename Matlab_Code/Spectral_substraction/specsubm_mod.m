@@ -50,7 +50,7 @@ function [ss,po]=specsubm_mod(s,fs,s2,p)
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
  
 if nargin<3
-  po=[0.04 0.1 0.032 1.5 0.08 400 4 4 1.5 0.02 4].'; 
+  po=[0.04 0.1 0.032 1.5 0.08 400 4 1 1.5 0.02 4].'; 
   s2=s;
 else po=p; 
 end
@@ -61,7 +61,7 @@ s2 = s2(1:ns);
 ts=1/fs;
 ss=zeros(ns,1);
  
-ni=pow2(nextpow2(fs*po(3)/po(8))); % po(3): fft window length
+ni=1024;%pow2(nextpow2(fs*po(3)/po(8))); % po(3): fft window length
 ti=ni/fs;
 nw=ni*po(8); % po(8): oversampling constant
 nf=1+floor((ns-nw)/ni);
@@ -70,8 +70,8 @@ nm=ceil(fs*po(4)/(ni*po(7))); % po(4): length min filter, po(7) minBufferCount
 %win=0.5*hamming(nw+1)/1.08;win(end)=[];
  
 %win=sqrt(hamming(nw+1)); win(end)=[]; % for now always use sqrt hamming window
-win=sqrt(hann(nw)); % for now always use sqrt hamming window
-win=win/sqrt(sum(win(1:ni:nw).^2));       % normalize to give overall gain of 1
+win=(hann(nw)); % for now always use sqrt hamming window
+##win=win/sqrt(sum(win(1:ni).^2));       % normalize to give overall gain of 1
  
 zg=exp(-ti/po(1)); % po(1) smoothing time constant
 za=exp(-ti/po(2)); % po(2) smoothing time constant in noise estimate
@@ -133,7 +133,7 @@ for is=1:nf
    nw_q = flip(q);
    nw_q = repelem(nw_q,2);
 ##   D = ifft(xs.*abs(nw_q));
-   D = ifft(xs.*(sum(nw_q)/length(nw_q)));
+   D = ifft(xs).*(sum(nw_q)/length(nw_q)));
 
  
 %   Y= xs.*(1-sqrt(os.*pn./xs2));
